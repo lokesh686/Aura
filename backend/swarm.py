@@ -4,7 +4,6 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from graphrag.neo4j_client import neo4j_client
 
-# Define the Swarm's State
 class AuditState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     resource_id: str
@@ -15,17 +14,21 @@ class AuditState(TypedDict):
     remediation_code: str
     jira_ticket_id: str
 
-# Mock MCP Client - In production, this connects via stdio to mcp_server.py
 MOCK_AWS_STATE = {
     "user-data-bucket": {"type": "S3", "encrypted": False, "public_access": True},
     "finance-db": {"type": "RDS", "encrypted": True, "public_access": False}
 }
 
-# Node 1: The Investigator (Queries MCP for Infra State)
 def investigator_agent(state: AuditState):
     resource_id = state.get("resource_id")
-    # Fetch actual state from our mock MCP dictionary
-    resource_state = MOCK_AWS_STATE.get(resource_id, {"type": "Unknown", "encrypted": False, "public_access": True})
+    
+    # Check if the user sent a custom state from the UI via the webhook
+    custom_state = state.get("resource_state", {})
+    if custom_state and len(custom_state) > 0:
+        resource_state = custom_state
+    else:
+        # Fallback to the mock data
+        resource_state = MOCK_AWS_STATE.get(resource_id, {"type": "Unknown", "encrypted": False, "public_access": True})
     
     return {
         "messages": [AIMessage(content=f"Investigated {resource_id} via MCP Gateway. Current State: {resource_state}")],
@@ -33,12 +36,10 @@ def investigator_agent(state: AuditState):
         "resource_type": resource_state.get("type")
     }
 
-# Node 2: The Compliance Officer (Queries GraphRAG Neo4j)
 def compliance_agent(state: AuditState):
     resource_id = state.get("resource_id")
     resource_state = state.get("resource_state")
     
-    # ACTUALLY query Neo4j for the governance policies tied to this resource!
     neo4j_policies = neo4j_client.get_policies_for_resource(resource_id)
     
     if not neo4j_policies:
@@ -50,7 +51,6 @@ def compliance_agent(state: AuditState):
     
     policy_texts = [f"{p['policy_id']}: {p['description']}" for p in neo4j_policies]
     
-    # Evaluate compliance based on the pulled policy
     is_compliant = True
     violation_msg = ""
     
@@ -72,13 +72,11 @@ def compliance_agent(state: AuditState):
         "compliance_passed": is_compliant
     }
 
-# Conditional Router
 def route_after_compliance(state: AuditState):
     if state.get("compliance_passed"):
         return END
     return "remediation_agent"
 
-# Node 3: The Remediation Engineer (Drafts Fix)
 def remediation_agent(state: AuditState):
     resource_type = state.get("resource_type")
     resource_id = state.get("resource_id")
@@ -116,7 +114,6 @@ resource "aws_s3_bucket_public_access_block" "fix" {{
         "remediation_code": terraform_fix
     }
 
-# Node 4: The Reporter (Uses MCP to create Jira Ticket)
 def reporter_agent(state: AuditState):
     ticket_id = f"AURA-SEC-{hash(state['resource_id']) % 10000}"
     return {
@@ -124,9 +121,7 @@ def reporter_agent(state: AuditState):
         "jira_ticket_id": ticket_id
     }
 
-# Build the LangGraph Swarm
 workflow = StateGraph(AuditState)
-
 workflow.add_node("investigator_agent", investigator_agent)
 workflow.add_node("compliance_agent", compliance_agent)
 workflow.add_node("remediation_agent", remediation_agent)

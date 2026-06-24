@@ -1,6 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 from swarm import aura_swarm
 from langchain_core.messages import HumanMessage
 
@@ -22,6 +23,7 @@ class CloudEvent(BaseModel):
     event_type: str
     resource_id: str
     timestamp: str
+    custom_state: Optional[dict] = None
 
 @app.get("/")
 def read_root():
@@ -41,7 +43,8 @@ async def handle_aws_event(event: CloudEvent):
     initial_state = {
         "messages": [HumanMessage(content=f"Triggered by event {event.event_type} on {event.resource_id}")],
         "resource_id": event.resource_id,
-        "resource_state": {},
+        # Pass the custom state if provided by the UI, otherwise empty
+        "resource_state": event.custom_state if event.custom_state else {},
         "applicable_policies": [],
         "compliance_passed": True,
         "remediation_code": "",
