@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+redis
+neo4j
+psycopg2-binary
+pgvector
+langchain
+langgraph
+pydantic
+pydantic-settings
+mcp
