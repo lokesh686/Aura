@@ -5,6 +5,7 @@ neo4j
 psycopg2-binary
 pgvector
 langchain
+langchain-openai
 langgraph
 pydantic
 pydantic-settings
